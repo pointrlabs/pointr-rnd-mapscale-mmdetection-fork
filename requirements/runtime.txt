@@ -3,5 +3,6 @@ numpy
 pycocotools; platform_system == "Linux"
 pycocotools-windows; platform_system == "Windows"
 six
+scipy
 terminaltables
 timm
