@@ -317,6 +317,7 @@ class CascadeRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         # "ms" in variable names means multi-stage
         ms_bbox_result = {}
         ms_segm_result = {}
+        ms_prob_result = {}
         ms_scores = []
         rcnn_test_cfg = self.test_cfg
 
@@ -380,8 +381,9 @@ class CascadeRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         # apply bbox post-processing to each image individually
         det_bboxes = []
         det_labels = []
+        det_probs = []
         for i in range(num_imgs):
-            det_bbox, det_label = self.bbox_head[-1].get_bboxes(
+            det_bbox, det_label, det_prob = self.bbox_head[-1].get_bboxes(
                 rois[i],
                 cls_score[i],
                 bbox_pred[i],
@@ -391,6 +393,7 @@ class CascadeRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 cfg=rcnn_test_cfg)
             det_bboxes.append(det_bbox)
             det_labels.append(det_label)
+            det_probs.append(det_prob)
 
         bbox_results = [
             bbox2result(det_bboxes[i], det_labels[i],
@@ -398,6 +401,7 @@ class CascadeRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
             for i in range(num_imgs)
         ]
         ms_bbox_result['ensemble'] = bbox_results
+        ms_prob_result['ensemble'] = det_probs
 
         if self.with_mask:
             if all(det_bbox.shape[0] == 0 for det_bbox in det_bboxes):
@@ -449,7 +453,7 @@ class CascadeRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
 
         if self.with_mask:
             results = list(
-                zip(ms_bbox_result['ensemble'], ms_segm_result['ensemble']))
+                zip(ms_bbox_result['ensemble'], ms_segm_result['ensemble'], ms_prob_result['ensemble']))
         else:
             results = ms_bbox_result['ensemble']
 

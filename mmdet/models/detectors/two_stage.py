@@ -1,4 +1,3 @@
-# Copyright (c) OpenMMLab. All rights reserved.
 import warnings
 
 import torch
@@ -8,7 +7,7 @@ from .base import BaseDetector
 
 
 @DETECTORS.register_module()
-class TwoStageDetector(BaseDetector):
+class _TwoStageDetector(BaseDetector):
     """Base class for two-stage detectors.
 
     Two-stage detectors typically consisting of a region proposal network and a
@@ -24,7 +23,7 @@ class TwoStageDetector(BaseDetector):
                  test_cfg=None,
                  pretrained=None,
                  init_cfg=None):
-        super(TwoStageDetector, self).__init__(init_cfg)
+        super(_TwoStageDetector, self).__init__(init_cfg)
         if pretrained:
             warnings.warn('DeprecationWarning: pretrained is deprecated, '
                           'please use "init_cfg" instead')
@@ -124,8 +123,6 @@ class TwoStageDetector(BaseDetector):
         Returns:
             dict[str, Tensor]: a dictionary of loss components
         """
-        x = self.extract_feat(img)
-
         losses = dict()
 
         # RPN forward and loss
@@ -138,8 +135,7 @@ class TwoStageDetector(BaseDetector):
                 gt_bboxes,
                 gt_labels=None,
                 gt_bboxes_ignore=gt_bboxes_ignore,
-                proposal_cfg=proposal_cfg,
-                **kwargs)
+                proposal_cfg=proposal_cfg)
             losses.update(rpn_losses)
         else:
             proposal_list = proposals
@@ -179,7 +175,6 @@ class TwoStageDetector(BaseDetector):
             proposal_list = self.rpn_head.simple_test_rpn(x, img_metas)
         else:
             proposal_list = proposals
-
         return self.roi_head.simple_test(
             x, proposal_list, img_metas, rescale=rescale)
 
@@ -200,12 +195,73 @@ class TwoStageDetector(BaseDetector):
         img_metas[0]['img_shape_for_onnx'] = img_shape
         x = self.extract_feat(img)
         proposals = self.rpn_head.onnx_export(x, img_metas)
-        if hasattr(self.roi_head, 'onnx_export'):
-            return self.roi_head.onnx_export(x, proposals, img_metas)
+        return self.roi_head.onnx_export(x, proposals, img_metas)
+
+
+@DETECTORS.register_module()
+class TwoStageDetector(_TwoStageDetector):
+    """Base class for two-stage detectors.
+
+    Two-stage detectors typically consisting of a region proposal network and a
+    task-specific regression head.
+    """
+
+    def forward_train(self,
+                      img,
+                      img_metas,
+                      gt_bboxes,
+                      gt_labels,
+                      gt_bboxes_ignore=None,
+                      gt_masks=None,
+                      proposals=None,
+                      loss_weights=None,
+                      **kwargs):
+        xs = self.extract_feat(img)
+        if not isinstance(xs[0], (list, tuple)):
+            xs = [xs]
+            loss_weights = None
+        elif loss_weights is None:
+            loss_weights = [0.5] + [1]*(len(xs)-1)  # Reference CBNet paper
+
+
+        def upd_loss(losses, idx, weight):
+            new_losses = dict()
+            for k,v in losses.items():
+                new_k = '{}{}'.format(k,idx)
+                if weight != 1 and 'loss' in k:
+                    new_k = '{}_w{}'.format(new_k, weight)
+                if isinstance(v,list) or isinstance(v,tuple):
+                    new_losses[new_k] = [i*weight for i in v]
+                else:new_losses[new_k] = v*weight
+            return new_losses
+
+        losses = dict()
+
+        # RPN forward and loss
+        if self.with_rpn:
+            proposal_cfg = self.train_cfg.get('rpn_proposal',
+                                              self.test_cfg.rpn)
+            for i,x in enumerate(xs):
+                rpn_losses, proposal_list = self.rpn_head.forward_train(
+                    x,
+                    img_metas,
+                    gt_bboxes,
+                    gt_labels=None,
+                    gt_bboxes_ignore=gt_bboxes_ignore,
+                    proposal_cfg=proposal_cfg)
+                if len(xs) > 1:
+                    rpn_losses = upd_loss(rpn_losses, idx=i, weight=loss_weights[i])
+                losses.update(rpn_losses)
         else:
-            raise NotImplementedError(
-                f'{self.__class__.__name__} can not '
-                f'be exported to ONNX. Please refer to the '
-                f'list of supported models,'
-                f'https://mmdetection.readthedocs.io/en/latest/tutorials/pytorch2onnx.html#list-of-supported-models-exportable-to-onnx'  # noqa E501
-            )
+            proposal_list = proposals
+
+        for i,x in enumerate(xs):
+            roi_losses = self.roi_head.forward_train(x, img_metas, proposal_list,
+                                                    gt_bboxes, gt_labels,
+                                                    gt_bboxes_ignore, gt_masks,
+                                                    **kwargs)
+            if len(xs) > 1:
+                roi_losses = upd_loss(roi_losses, idx=i, weight=loss_weights[i])                            
+            losses.update(roi_losses)
+
+        return losses

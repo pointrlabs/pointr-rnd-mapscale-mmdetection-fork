@@ -20,7 +20,7 @@ def multiclass_nms(multi_bboxes,
             contains scores of the background class, but this will be ignored.
         score_thr (float): bbox threshold, bboxes with scores lower than it
             will not be considered.
-        nms_cfg (dict): a dict that contains the arguments of nms operations
+        nms_thr (float): NMS IoU threshold
         max_num (int, optional): if there are more than max_num bboxes after
             NMS, only top max_num will be kept. Default to -1.
         score_factors (Tensor, optional): The factors multiplied to scores
@@ -79,18 +79,22 @@ def multiclass_nms(multi_bboxes,
                                'as it has not been executed this time')
         dets = torch.cat([bboxes, scores[:, None]], -1)
         if return_inds:
-            return dets, labels, inds
+            return dets, labels, inds, [torch.zeros(0, dtype=torch.int64) for i in range(num_classes)]
         else:
             return dets, labels
 
     dets, keep = batched_nms(bboxes, scores, labels, nms_cfg)
 
-    if max_num > 0:
-        dets = dets[:max_num]
-        keep = keep[:max_num]
-
     if return_inds:
-        return dets, labels[keep], inds[keep]
+        if max_num > 0:
+            dets = dets[:max_num]
+            keep = keep[:max_num]
+        abs_inds = inds[keep] // num_classes
+        labels_tmp = labels[keep]
+        if isinstance(bboxes, torch.Tensor):
+            labels_tmp = labels_tmp.detach().cpu().numpy()
+            abs_inds_sorted = [abs_inds[labels_tmp == i] for i in range(num_classes)]
+        return dets, labels[keep], keep, abs_inds_sorted
     else:
         return dets, labels[keep]
 
