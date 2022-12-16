@@ -10,6 +10,7 @@ from mmdet.models.builder import HEADS, build_loss
 from mmdet.models.losses import accuracy
 from mmdet.models.utils import build_linear_layer
 
+import numpy as np
 
 @HEADS.register_module()
 class BBoxHead(BaseModule):
@@ -371,11 +372,18 @@ class BBoxHead(BaseModule):
         if cfg is None:
             return bboxes, scores
         else:
-            det_bboxes, det_labels = multiclass_nms(bboxes, scores,
+            det_bboxes, det_labels, inds, inds_sorted = multiclass_nms(bboxes, scores,
                                                     cfg.score_thr, cfg.nms,
-                                                    cfg.max_per_img)
-
-            return det_bboxes, det_labels
+                                                    cfg.max_per_img, return_inds=True)
+            
+            probs_all_classes = []
+            scores_deattach = scores.detach().cpu().numpy()
+            for inds_class in inds_sorted:
+                probs_tmp = scores_deattach[inds_class.detach().cpu().numpy()]
+                if len(probs_tmp.shape) == 1:
+                    probs_tmp = np.expand_dims(probs_tmp, axis=0)
+                probs_all_classes.append(probs_tmp)
+            return det_bboxes, det_labels, probs_all_classes
 
     @force_fp32(apply_to=('bbox_preds', ))
     def refine_bboxes(self, rois, labels, bbox_preds, pos_is_gts, img_metas):
