@@ -89,7 +89,7 @@ def multiclass_nms(multi_bboxes,
         if max_num > 0:
             dets = dets[:max_num]
             keep = keep[:max_num]
-        abs_inds = inds[keep] // num_classes
+        abs_inds = torch.div(inds[keep], num_classes, mode='trunc')
         labels_tmp = labels[keep]
         if isinstance(bboxes, torch.Tensor):
             labels_tmp = labels_tmp.detach().cpu().numpy()

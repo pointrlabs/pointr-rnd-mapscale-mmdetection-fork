@@ -63,7 +63,7 @@ def single_gpu_test(model,
         # encode mask results
         if isinstance(result[0], tuple):
             result = [(bbox_results, encode_mask_results(mask_results))
-                      for bbox_results, mask_results in result]
+                      for bbox_results, mask_results, _ in result]
         # This logic is only used in panoptic segmentation test.
         elif isinstance(result[0], dict) and 'ins_results' in result[0]:
             for j in range(len(result)):
@@ -110,7 +110,7 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
             # encode mask results
             if isinstance(result[0], tuple):
                 result = [(bbox_results, encode_mask_results(mask_results))
-                          for bbox_results, mask_results in result]
+                          for bbox_results, mask_results, _ in result]
             # This logic is only used in panoptic segmentation test.
             elif isinstance(result[0], dict) and 'ins_results' in result[0]:
                 for j in range(len(result)):
